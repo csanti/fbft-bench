@@ -1,0 +1,11 @@
+Simulation = "FBFT"
+Servers = 1
+Rounds = 10
+RunWait = "6000s"
+Suite = "bn256.G2"
+Bandwidth = 35
+Delay = 100
+BlockSize = 1000000
+
+Hosts, BF
+100, 99

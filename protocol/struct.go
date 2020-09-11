@@ -1,6 +1,10 @@
 package protocol
 
-import "github.com/csanti/onet"
+import (
+	"github.com/csanti/onet"
+	"go.dedis.ch/kyber"
+	"go.dedis.ch/kyber/share"
+)
 
 /*
 type PrePrepare struct {
@@ -82,5 +86,15 @@ type Reply struct {
 type StructReply struct {
 	*onet.TreeNode
 	Reply
+}
+
+type Config struct {
+	Public    []kyber.Point   // to reconstruct public polynomial
+	Share     *share.PriShare // private share
+}
+
+type StructConfig struct {
+	*onet.TreeNode
+	Config
 }
 

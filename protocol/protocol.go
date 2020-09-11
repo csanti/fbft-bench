@@ -9,6 +9,7 @@ import (
 	"math"
 	"fmt"
 	"encoding/json"
+
 //	"strings"
 
 	"github.com/csanti/onet"
@@ -17,9 +18,8 @@ import (
 	"go.dedis.ch/kyber/sign/tbls"
 	"go.dedis.ch/kyber/share"
 
-//	"go.dedis.ch/kyber/util/random"
 	"go.dedis.ch/kyber/pairing/bn256"
-//	"go.dedis.ch/kyber/util/random"
+	"go.dedis.ch/kyber/util/random"
 
 	"crypto/sha512"
 )
@@ -31,7 +31,7 @@ const DefaultProtocolName = "FBFT"
 
 func init() {
 	log.SetDebugVisible(1)
-	network.RegisterMessages(Announce{}, Prepare{}, Prepared{}, Commit{}, Committed{}, Reply{})
+	network.RegisterMessages(Announce{}, Prepare{}, Prepared{}, Commit{}, Committed{}, Reply{}, Config{})
 	onet.GlobalProtocolRegister(DefaultProtocolName, NewProtocol)
 }
 
@@ -74,7 +74,6 @@ var _ onet.ProtocolInstance = (*FbftProtocol)(nil)
 
 // NewProtocol initialises the structure for use in one round
 func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
-	log.Lvl1("new protocol")
 	netSize := n.Tree().Size()
 	threshold := netSize/2 + 1
 	//secret := Suite.G1().Scalar()
@@ -134,6 +133,11 @@ func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 		}
 	}
 
+	err := t.RegisterHandler(t.ConfigHandler)
+	if err != nil {
+		return nil, errors.New("couldn't register handler: " + err.Error())
+	}
+
 	return t, nil
 }
 
@@ -163,7 +167,6 @@ func (fbft *FbftProtocol) Start() error {
 }
 
 func (fbft *FbftProtocol) Dispatch() error {
-
 	log.Lvl3(fbft.ServerIdentity(), "Started node")
 
 	nRepliesThreshold := int(math.Ceil(float64(fbft.nNodes - 1 ) * (float64(2)/float64(3)))) + 1
@@ -247,7 +250,7 @@ loop:
 		if !(nReceivedPrepareMessages >= nRepliesThreshold) {
 			errors.New("node didn't receive enough prepare messages. Stopping.")
 		} else {
-			log.Lvl2(fbft.ServerIdentity(), "Received enough prepare messages (> 2/3 + 1):", nReceivedPrepareMessages, "/", fbft.nNodes)
+			log.Lvl1(fbft.ServerIdentity(), "Received enough prepare messages (> 2/3 + 1):", nReceivedPrepareMessages, "/", fbft.nNodes)
 		}
 
 		//digest := sha512.Sum512(fbft.Msg)
@@ -389,7 +392,30 @@ func min(a, b int) int {
     return b
 }
 
-/*
+func (fbft *FbftProtocol) ConfigHandler(c StructConfig) error {
+	log.Lvl1("Received config")
+	log.Lvl1(c.Public)
+	return nil
+}
+
+func (fbft *FbftProtocol) DistributeKeys() {
+	log.Lvl1("Distributing Keys...")
+	nRepliesThreshold := int(math.Ceil(float64(fbft.nNodes - 1 ) * (float64(2)/float64(3)))) + 1
+	nRepliesThreshold = min(nRepliesThreshold, fbft.nNodes - 1)
+	shares, public := dkg(nRepliesThreshold, fbft.nNodes)
+	_, commits := public.Info()
+	c := &Config{
+		Public: commits,
+		Share: shares[0], 
+	}
+	// save keys locally
+	if err := fbft.SendToChildrenInParallel(c); err != nil {
+		log.Lvl1(fbft.ServerIdentity(), "error while sending keys")
+	}
+
+}
+
+
 func dkg(t, n int) ([]*share.PriShare, *share.PubPoly) {
 	allShares := make([][]*share.PriShare, n)
 	var public *share.PubPoly
@@ -412,4 +438,3 @@ func dkg(t, n int) ([]*share.PriShare, *share.PubPoly) {
 	}
 	return shares, public
 }
-*/

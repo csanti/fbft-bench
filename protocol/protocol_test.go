@@ -60,7 +60,8 @@ func TestNode(t *testing.T) {
 	*/
 	protocol.Msg = proposal
 	protocol.Timeout = defaultTimeout
-
+	protocol.DistributeKeys()
+	log.Lvl1("Sleeping for keys to distribute correctly...")
 	time.Sleep(time.Duration(4)*time.Second)
 	err = protocol.Start()
 	if err != nil {

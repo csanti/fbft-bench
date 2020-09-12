@@ -88,8 +88,6 @@ var defaultTimeout = 120 * time.Second
 
 // Run implements onet.Simulation.
 func (s *SimulationProtocol) Run(config *onet.SimulationConfig) error {
-	log.SetDebugVisible(1)
-
 	var binaryBlock []byte
 	binaryBlock = make([]byte, s.BlockSize)
 	rand.Read(binaryBlock)
@@ -101,9 +99,7 @@ func (s *SimulationProtocol) Run(config *onet.SimulationConfig) error {
 	for round := 0; round < s.Rounds; round++ {
 		log.Lvl1("Starting round", round)
 		var fullRound *monitor.TimeMeasure
-		if round > 0 {
-			fullRound = monitor.NewTimeMeasure("fullRound")
-		}
+		// skip first round measurements, usually slower
 
 		pi, err := config.Overlay.CreateProtocol(protocol.DefaultProtocolName, config.Tree, onet.NilServiceID)
 		if err != nil {
@@ -113,7 +109,12 @@ func (s *SimulationProtocol) Run(config *onet.SimulationConfig) error {
 		fbftPprotocol := pi.(*protocol.FbftProtocol)
 		fbftPprotocol.Msg = binaryBlock
 		fbftPprotocol.Timeout = defaultTimeout
-
+		fbftPprotocol.DistributeKeys()
+		log.Lvl1("Sleeping for keys to distribute correctly...")
+		time.Sleep(time.Duration(4)*time.Second)
+		if round > 0 {
+			fullRound = monitor.NewTimeMeasure("fullRound")
+		}
 		err = fbftPprotocol.Start()
 		if err != nil {
 			return err
@@ -123,11 +124,11 @@ func (s *SimulationProtocol) Run(config *onet.SimulationConfig) error {
 		case finalReply := <-fbftPprotocol.FinalReply:
 			log.Lvl1("Leader sent final reply")
 			_ = finalReply
+			if round > 0 {
+				fullRound.Record()
+			}
 		case <-time.After(defaultTimeout * 2):
 			fmt.Errorf("Leader never got enough final replies, timed out")
-		}
-		if round > 0 {
-			fullRound.Record()
 		}
 	}
 	return nil

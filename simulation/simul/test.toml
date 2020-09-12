@@ -8,4 +8,4 @@ Delay = 100
 BlockSize = 1000000
 
 Hosts, BF
-100, 99
+50, 49

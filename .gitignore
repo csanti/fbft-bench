@@ -14,3 +14,4 @@ external/js/dist
 external/js/output.log
 *.DS_Store
 *.log
+test_data/

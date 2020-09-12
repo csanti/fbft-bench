@@ -16,6 +16,7 @@ import (
 	"github.com/csanti/onet/log"
 	"github.com/csanti/onet/network"
 	"go.dedis.ch/kyber/sign/tbls"
+	"go.dedis.ch/kyber/sign/bls"
 	"go.dedis.ch/kyber/share"
 
 	"go.dedis.ch/kyber/pairing/bn256"
@@ -53,7 +54,7 @@ type FbftProtocol struct {
 	verificationFn  	VerificationFn
 	Timeout 			time.Duration
 
-	PriKeySharesMap		map[string]*share.PriShare
+	PriKeyShare			*share.PriShare
 	PubKey 				*share.PubPoly
 /*
 	ChannelPrePrepare   chan StructPrePrepare
@@ -74,18 +75,7 @@ var _ onet.ProtocolInstance = (*FbftProtocol)(nil)
 
 // NewProtocol initialises the structure for use in one round
 func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
-	netSize := n.Tree().Size()
-	threshold := netSize/2 + 1
-	//secret := Suite.G1().Scalar()
-	priPoly := share.NewPriPoly(Suite.G2(), threshold, nil, Suite.RandomStream())
-	pubPoly := priPoly.Commit(Suite.G2().Point().Base())
-	//sigShares := make([][]byte, 0)
-	allShares := priPoly.Shares(netSize)
-	priKeySharesMap := make(map[string]*share.PriShare)
-	for i, node := range n.Tree().List() {
-		priKeySharesMap[node.ServerIdentity.ID.String()] = allShares[i]
-	}
-	
+
 	/*
 	pubKeysMap := make(map[string]kyber.Point)
 	for _, node := range n.Tree().List() {
@@ -112,9 +102,6 @@ func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 		nNodes: 			n.Tree().Size(),
 		startChan:       	make(chan bool, 1),
 		FinalReply:   		make(chan []byte, 1),
-		//PubKeysMap:		pubKeysMap,
-		PriKeySharesMap:	priKeySharesMap,
-		PubKey:				pubPoly,
 		Data:            	make([]byte, 0),
 		verificationFn:		vf,
 	}
@@ -151,7 +138,7 @@ func (fbft *FbftProtocol) Start() error {
 		digest := sha512.Sum512(fbft.Msg) // TODO digest is correct?
 		//sig, err := schnorr.Sign(fbft.Suite(), fbft.Private(), fbft.Msg)
 
-		sigshare, err := tbls.Sign(Suite, fbft.PriKeySharesMap[fbft.ServerIdentity().ID.String()], fbft.Msg)
+		sigshare, err := tbls.Sign(Suite, fbft.PriKeyShare, fbft.Msg)
 		if err != nil {
 			return err
 		}
@@ -168,6 +155,8 @@ func (fbft *FbftProtocol) Start() error {
 
 func (fbft *FbftProtocol) Dispatch() error {
 	log.Lvl3(fbft.ServerIdentity(), "Started node")
+	log.Lvl3("Sleeping dispatch for keys")
+	time.Sleep(time.Duration(4)*time.Second)
 
 	nRepliesThreshold := int(math.Ceil(float64(fbft.nNodes - 1 ) * (float64(2)/float64(3)))) + 1
 	nRepliesThreshold = min(nRepliesThreshold, fbft.nNodes - 1)
@@ -191,11 +180,10 @@ func (fbft *FbftProtocol) Dispatch() error {
 		// Verify the signature for authentication
 		//log.Lvlf1("%d - %d",announce.Msg,announce.SigShare)
 		//log.Lvl1(fbft.PubKey)
-		/*
 		err := tbls.Verify(Suite, fbft.PubKey, announce.Msg, announce.SigShare)
 		if err != nil {
 			return err
-		}*/
+		}
 
 		// verify message digest
 		digest := sha512.Sum512(announce.Msg)
@@ -211,7 +199,7 @@ func (fbft *FbftProtocol) Dispatch() error {
 		}
 		
 		// Sign message and broadcast
-		signedDigest, err := tbls.Sign(Suite, fbft.PriKeySharesMap[fbft.ServerIdentity().ID.String()], futureDigest)
+		signedDigest, err := tbls.Sign(Suite, fbft.PriKeyShare, futureDigest)
 		if err != nil {
 			return err
 		}
@@ -220,86 +208,113 @@ func (fbft *FbftProtocol) Dispatch() error {
 		if err := fbft.SendToParent(&Prepare{Digest:futureDigest, SigShare:signedDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
 			log.Lvl3(fbft.ServerIdentity(), "error while broadcasting prepare message")
 		}
+	} else {
+		digest := sha512.Sum512(fbft.Msg)
+		futureDigest = digest[:]
 	}
 
 
 	prepareTimeout := time.After(defaultTimeout * 2)
 	nReceivedPrepareMessages := 0
+	validPrepareShares := make([][]byte, 0, nRepliesThreshold)
 
 	if fbft.IsRoot() {
+		//first, append own signature
+		leaderShare, err := tbls.Sign(Suite, fbft.PriKeyShare, futureDigest)
+		if err != nil {
+			return err
+		}
+		validPrepareShares = append(validPrepareShares, leaderShare)
+		nReceivedPrepareMessages++
 loop:
 		for  i := 0; i <= nRepliesThreshold - 1; i++  {
 			select {
-			case _, channelOpen := <-fbft.ChannelPrepare:
+			case prepare, channelOpen := <-fbft.ChannelPrepare:
 				if !channelOpen {
 					return nil
 				}
 				// Verify the signature for authentication
-				/*
 				err := tbls.Verify(Suite, fbft.PubKey, prepare.Digest, prepare.SigShare)
 				if err != nil {
 					return err
-				}*/
+				}
+
+				validPrepareShares = append(validPrepareShares, prepare.SigShare)
 				nReceivedPrepareMessages++
 			case <-prepareTimeout:
 				// TODO
 				break loop
 			}	
 		}
-
 		if !(nReceivedPrepareMessages >= nRepliesThreshold) {
 			errors.New("node didn't receive enough prepare messages. Stopping.")
 		} else {
 			log.Lvl1(fbft.ServerIdentity(), "Received enough prepare messages (> 2/3 + 1):", nReceivedPrepareMessages, "/", fbft.nNodes)
 		}
 
+		/*
 		//digest := sha512.Sum512(fbft.Msg)
-
-		// Sign message and broadcast
-		// TODO: this should be the aggregated signature
-		signedDigest2, err := tbls.Sign(Suite, fbft.PriKeySharesMap[fbft.ServerIdentity().ID.String()], futureDigest)
+		log.Lvl1(len(validPrepareShares))
+		aggrPrepare, err := tbls.Recover(Suite, fbft.PubKey, futureDigest, validPrepareShares, nRepliesThreshold, fbft.nNodes)
 		if err != nil {
 			return err
-		}
+		}*/
+
 
 		// Leader sends prepared to other nodes
-		if err := fbft.SendToChildrenInParallel(&Prepared{Digest:futureDigest, Sender:fbft.ServerIdentity().ID.String(), AggrSig:signedDigest2}); err != nil {
+		// TODO change for aggregated signature
+		if err := fbft.SendToChildrenInParallel(&Prepared{Digest:futureDigest, Sender:fbft.ServerIdentity().ID.String(), AggrSig:leaderShare}); err != nil {
 			log.Lvl1(fbft.ServerIdentity(), "error while broadcasting prepared message")
 		}
 
 	} else {
 		log.Lvl2(fbft.ServerIdentity(), "Waiting for prepared")
-		_, channelOpen := <-fbft.ChannelPrepared
+		prepared, channelOpen := <-fbft.ChannelPrepared
 		if !channelOpen {
 			return nil
 		}
 		log.Lvl2(fbft.ServerIdentity(), "Received prepared. Verifying...")
 
+		err := tbls.Verify(Suite, fbft.PubKey, prepared.Digest, prepared.AggrSig)
+		if err != nil {
+			return err
+		}
 		// verify aggregated signature
 		// send the message to the root node (leader)
+		// Sign message and broadcast
+		signedDigest, err := tbls.Sign(Suite, fbft.PriKeyShare, futureDigest)
+		if err != nil {
+			return err
+		}
+
 		if err := fbft.SendToParent(&Commit{Digest:futureDigest, SigShare:signedDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
 			log.Lvl3(fbft.ServerIdentity(), "error while broadcasting commit message")
 		}
 
 	}
+
 	commitTimeout := time.After(defaultTimeout * 2)
 	nReceivedCommitMessages := 0
+	validCommitShares := make([][]byte, 0, nRepliesThreshold)
 
 	if fbft.IsRoot() {
+		validCommitShares = append(validCommitShares, signedDigest)
+		nReceivedCommitMessages++
 commitLoop:
 		for  i := 0; i <= nRepliesThreshold - 1; i++  {
 			select {
-			case _, channelOpen := <-fbft.ChannelCommit:
+			case commit, channelOpen := <-fbft.ChannelCommit:
 				if !channelOpen {
 					return nil
 				}
-
 				// Verify the signature for authentication
-				/*
 				err := tbls.Verify(Suite, fbft.PubKey, commit.Digest, commit.SigShare)
 				if err != nil {
+					log.Lvl1("Error verifying signature")
 					return err
-				}*/
+				}
+
+				validCommitShares = append(validCommitShares, commit.SigShare)
 				nReceivedCommitMessages++
 			case <-commitTimeout:
 				// TODO
@@ -393,8 +408,9 @@ func min(a, b int) int {
 }
 
 func (fbft *FbftProtocol) ConfigHandler(c StructConfig) error {
-	log.Lvl1("Received config")
-	log.Lvl1(c.Public)
+	log.Lvl3("Received config")
+	fbft.PubKey = share.NewPubPoly(G2, G2.Point().Base(), c.Public)
+	fbft.PriKeyShare = c.Share
 	return nil
 }
 
@@ -402,16 +418,26 @@ func (fbft *FbftProtocol) DistributeKeys() {
 	log.Lvl1("Distributing Keys...")
 	nRepliesThreshold := int(math.Ceil(float64(fbft.nNodes - 1 ) * (float64(2)/float64(3)))) + 1
 	nRepliesThreshold = min(nRepliesThreshold, fbft.nNodes - 1)
+	log.Lvlf1("Generating keys for with: %d network size, %d threshold",fbft.nNodes, nRepliesThreshold)
 	shares, public := dkg(nRepliesThreshold, fbft.nNodes)
 	_, commits := public.Info()
-	c := &Config{
-		Public: commits,
-		Share: shares[0], 
+
+	// save key localy
+	count := 0
+	fbft.PubKey = share.NewPubPoly(G2, G2.Point().Base(), commits)
+	fbft.PriKeyShare = shares[count]
+
+	for _, child := range fbft.Children() {
+		c := &Config{
+			Public: commits,
+			Share: shares[count], 
+		}
+		if err := fbft.SendTo(child, c); err != nil {
+			log.Lvl1(fbft.ServerIdentity(), "error while sending keys")
+		}
+		count++
 	}
-	// save keys locally
-	if err := fbft.SendToChildrenInParallel(c); err != nil {
-		log.Lvl1(fbft.ServerIdentity(), "error while sending keys")
-	}
+
 
 }
 
@@ -437,4 +463,35 @@ func dkg(t, n int) ([]*share.PriShare, *share.PubPoly) {
 		shares[i] = &share.PriShare{I: i, V: v}
 	}
 	return shares, public
+}
+
+func recover(public *share.PubPoly, msg []byte, sigs [][]byte, t, n int) ([]byte, error) {
+	pubShares := make([]*share.PubShare, 0)
+	for _, sig := range sigs {
+		s := tbls.SigShare(sig)
+		i, err := s.Index()
+		if err != nil {
+			return nil, err
+		}
+		if err = bls.Verify(Suite, public.Eval(i).V, msg, s.Value()); err != nil {
+			return nil, err
+		}
+		point := Suite.G1().Point()
+		if err := point.UnmarshalBinary(s.Value()); err != nil {
+			return nil, err
+		}
+		pubShares = append(pubShares, &share.PubShare{I: i, V: point})
+		if len(pubShares) >= t {
+			break
+		}
+	}
+	commit, err := share.RecoverCommit(Suite.G1(), pubShares, t, n)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := commit.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return sig, nil
 }

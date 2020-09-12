@@ -23,7 +23,7 @@ func newNetworkSuite() *networkSuite {
 }
 
 func TestNode(t *testing.T) {
-	log.SetDebugVisible(2)
+	log.SetDebugVisible(1)
 	n := 10
 	proposal := []byte("dedis")
 	defaultTimeout := 5 * time.Second
@@ -62,7 +62,7 @@ func TestNode(t *testing.T) {
 	protocol.Timeout = defaultTimeout
 	protocol.DistributeKeys()
 	log.Lvl1("Sleeping for keys to distribute correctly...")
-	time.Sleep(time.Duration(4)*time.Second)
+	time.Sleep(time.Duration(2)*time.Second)
 	err = protocol.Start()
 	if err != nil {
 		test.CloseAll()

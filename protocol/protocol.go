@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"encoding/json"
 
-//	"strings"
-
 	"github.com/csanti/onet"
 	"github.com/csanti/onet/log"
 	"github.com/csanti/onet/network"
@@ -31,7 +29,6 @@ var G2 = Suite.G2()
 const DefaultProtocolName = "FBFT"
 
 func init() {
-	log.SetDebugVisible(1)
 	network.RegisterMessages(Announce{}, Prepare{}, Prepared{}, Commit{}, Committed{}, Reply{}, Config{})
 	onet.GlobalProtocolRegister(DefaultProtocolName, NewProtocol)
 }
@@ -56,12 +53,7 @@ type FbftProtocol struct {
 
 	PriKeyShare			*share.PriShare
 	PubKey 				*share.PubPoly
-/*
-	ChannelPrePrepare   chan StructPrePrepare
-	ChannelPrepare 		chan StructPrepare
-	ChannelCommit		chan StructCommit
-	ChannelReply		chan StructReply
-*/
+
 	ChannelAnnounce		chan StructAnnounce
 	ChannelPrepare 		chan StructPrepare
 	ChannelPrepared		chan StructPrepared
@@ -76,14 +68,6 @@ var _ onet.ProtocolInstance = (*FbftProtocol)(nil)
 // NewProtocol initialises the structure for use in one round
 func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 
-	/*
-	pubKeysMap := make(map[string]kyber.Point)
-	for _, node := range n.Tree().List() {
-		//fmt.Println(node.ServerIdentity, node.ServerIdentity.Public, node.ServerIdentity.ID.String())
-		pubKeysMap[node.ServerIdentity.ID.String()] = node.ServerIdentity.Public
-	}
-	*/
-
 	vf := func(msg, data []byte) bool {
 		// Simulate verification function by sleeping
 		b, _ := json.Marshal(msg)
@@ -91,12 +75,9 @@ func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 		waitTime := 150 * time.Millisecond * m
 		log.Lvl3("Verifying for", waitTime)
 
-		// TODO: change if we want to simulate verification time
-		//time.Sleep(waitTime)  
-
 		return true 
 	}
-	//_, commits := public.Info()
+
 	t := &FbftProtocol{
 		TreeNodeInstance: 	n,
 		nNodes: 			n.Tree().Size(),
@@ -130,14 +111,11 @@ func NewProtocol(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 
 // Start sends the Announce-message to all children
 func (fbft *FbftProtocol) Start() error {
-	// TODO verify args not null
 	log.Lvl1("Starting FbftProtocol")
 
 	if fbft.IsRoot() {
 		// send pre-prepare phase
-		digest := sha512.Sum512(fbft.Msg) // TODO digest is correct?
-		//sig, err := schnorr.Sign(fbft.Suite(), fbft.Private(), fbft.Msg)
-
+		digest := sha512.Sum512(fbft.Msg)
 		sigshare, err := tbls.Sign(Suite, fbft.PriKeyShare, fbft.Msg)
 		if err != nil {
 			return err
@@ -149,7 +127,7 @@ func (fbft *FbftProtocol) Start() error {
 			}
 		}()
 	}
-	
+
 	return nil
 }
 
@@ -160,8 +138,8 @@ func (fbft *FbftProtocol) Dispatch() error {
 
 	nRepliesThreshold := int(math.Ceil(float64(fbft.nNodes - 1 ) * (float64(2)/float64(3)))) + 1
 	nRepliesThreshold = min(nRepliesThreshold, fbft.nNodes - 1)
-	var futureDigest []byte
-	var signedDigest []byte
+
+	var proposalDigest, signedDigest []byte
 	if !fbft.IsRoot() {
 		// Verification of the data
 		verifyChan := make(chan bool, 1)
@@ -178,8 +156,6 @@ func (fbft *FbftProtocol) Dispatch() error {
 		}()
 
 		// Verify the signature for authentication
-		//log.Lvlf1("%d - %d",announce.Msg,announce.SigShare)
-		//log.Lvl1(fbft.PubKey)
 		err := tbls.Verify(Suite, fbft.PubKey, announce.Msg, announce.SigShare)
 		if err != nil {
 			return err
@@ -191,7 +167,7 @@ func (fbft *FbftProtocol) Dispatch() error {
 			log.Lvl3(fbft.ServerIdentity(), "received announce digest is not correct")
 		}
 
-		futureDigest = announce.Digest
+		proposalDigest = announce.Digest
 
 		ok := <-verifyChan
 		if !ok {
@@ -199,28 +175,27 @@ func (fbft *FbftProtocol) Dispatch() error {
 		}
 		
 		// Sign message and broadcast
-		signedDigest, err := tbls.Sign(Suite, fbft.PriKeyShare, futureDigest)
+		signedDigest, err := tbls.Sign(Suite, fbft.PriKeyShare, proposalDigest)
 		if err != nil {
 			return err
 		}
 		
 		// send the message to the root node (leader)
-		if err := fbft.SendToParent(&Prepare{Digest:futureDigest, SigShare:signedDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
+		if err := fbft.SendToParent(&Prepare{Digest:proposalDigest, SigShare:signedDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
 			log.Lvl3(fbft.ServerIdentity(), "error while broadcasting prepare message")
 		}
 	} else {
 		digest := sha512.Sum512(fbft.Msg)
-		futureDigest = digest[:]
+		proposalDigest = digest[:]
 	}
-
 
 	prepareTimeout := time.After(defaultTimeout * 2)
 	nReceivedPrepareMessages := 0
 	validPrepareShares := make([][]byte, 0, nRepliesThreshold)
 
 	if fbft.IsRoot() {
-		//first, append own signature
-		leaderShare, err := tbls.Sign(Suite, fbft.PriKeyShare, futureDigest)
+		// first, append own signature
+		leaderShare, err := tbls.Sign(Suite, fbft.PriKeyShare, proposalDigest)
 		if err != nil {
 			return err
 		}
@@ -252,18 +227,10 @@ loop:
 			log.Lvl1(fbft.ServerIdentity(), "Received enough prepare messages (> 2/3 + 1):", nReceivedPrepareMessages, "/", fbft.nNodes)
 		}
 
-		/*
-		//digest := sha512.Sum512(fbft.Msg)
-		log.Lvl1(len(validPrepareShares))
-		aggrPrepare, err := tbls.Recover(Suite, fbft.PubKey, futureDigest, validPrepareShares, nRepliesThreshold, fbft.nNodes)
-		if err != nil {
-			return err
-		}*/
-
+		// TODO: aggregate signatures, and digest should be from prepared message, not proposaldigest
 
 		// Leader sends prepared to other nodes
-		// TODO change for aggregated signature
-		if err := fbft.SendToChildrenInParallel(&Prepared{Digest:futureDigest, Sender:fbft.ServerIdentity().ID.String(), AggrSig:leaderShare}); err != nil {
+		if err := fbft.SendToChildrenInParallel(&Prepared{Digest:proposalDigest, Sender:fbft.ServerIdentity().ID.String(), AggrSig:leaderShare}); err != nil {
 			log.Lvl1(fbft.ServerIdentity(), "error while broadcasting prepared message")
 		}
 
@@ -275,19 +242,21 @@ loop:
 		}
 		log.Lvl2(fbft.ServerIdentity(), "Received prepared. Verifying...")
 
+		// verify aggregated signature
 		err := tbls.Verify(Suite, fbft.PubKey, prepared.Digest, prepared.AggrSig)
 		if err != nil {
 			return err
 		}
-		// verify aggregated signature
-		// send the message to the root node (leader)
-		// Sign message and broadcast
-		signedDigest, err := tbls.Sign(Suite, fbft.PriKeyShare, futureDigest)
+		
+		// TODO: change proposaldigest
+
+		// sign and send the message to the root node (leader)
+		signedDigest, err := tbls.Sign(Suite, fbft.PriKeyShare, proposalDigest)
 		if err != nil {
 			return err
 		}
 
-		if err := fbft.SendToParent(&Commit{Digest:futureDigest, SigShare:signedDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
+		if err := fbft.SendToParent(&Commit{Digest:proposalDigest, SigShare:signedDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
 			log.Lvl3(fbft.ServerIdentity(), "error while broadcasting commit message")
 		}
 
@@ -298,6 +267,11 @@ loop:
 	validCommitShares := make([][]byte, 0, nRepliesThreshold)
 
 	if fbft.IsRoot() {
+		// TODO: change for signatuer of commit message
+		leaderShare, err := tbls.Sign(Suite, fbft.PriKeyShare, proposalDigest)
+		if err != nil {
+			return err
+		}
 		validCommitShares = append(validCommitShares, signedDigest)
 		nReceivedCommitMessages++
 commitLoop:
@@ -329,10 +303,10 @@ commitLoop:
 			log.Lvl1(fbft.ServerIdentity(), "Received enough commit messages (> 2/3 + 1):", nReceivedCommitMessages, "/", fbft.nNodes)
 		}
 
-		// aggregate signature again...
+		// TODO: aggregate signatures again, change proposalDigest and leadershare...
 
 		// Leader sends committed to other nodes
-		if err := fbft.SendToChildrenInParallel(&Committed{Digest:futureDigest, Sender:fbft.ServerIdentity().ID.String()}); err != nil {
+		if err := fbft.SendToChildrenInParallel(&Committed{Digest:proposalDigest, Sender:fbft.ServerIdentity().ID.String(), AggrSig: leaderShare}); err != nil {
 			log.Lvl1(fbft.ServerIdentity(), "error while broadcasting committed message")
 		}
 
@@ -362,13 +336,6 @@ replyLoop:
 					return nil
 				}
 
-				// Verify the signature for authentication
-				/*
-				err := tbls.Verify(Suite, fbft.PubKey, committed.Digest, committed.AggrSig)
-				if err != nil {
-					return err
-				}*/
-
 				receivedReplies++
 				log.Lvl2("Leader got one reply, total received is now", receivedReplies, "out of", nRepliesThreshold, "needed.")
 				
@@ -379,8 +346,7 @@ replyLoop:
 			}
 		}
 
-		fbft.FinalReply <- futureDigest[:]
-
+		fbft.FinalReply <- proposalDigest[:]
 	}
 
 	return nil
@@ -396,6 +362,7 @@ func (fbft *FbftProtocol) Shutdown() error {
 		close(fbft.ChannelCommitted)
 		close(fbft.ChannelReply)
 	})
+
 	return nil
 }
 
@@ -404,6 +371,7 @@ func min(a, b int) int {
     if a < b {
         return a
     }
+
     return b
 }
 
@@ -411,6 +379,7 @@ func (fbft *FbftProtocol) ConfigHandler(c StructConfig) error {
 	log.Lvl3("Received config")
 	fbft.PubKey = share.NewPubPoly(G2, G2.Point().Base(), c.Public)
 	fbft.PriKeyShare = c.Share
+
 	return nil
 }
 
@@ -437,10 +406,7 @@ func (fbft *FbftProtocol) DistributeKeys() {
 		}
 		count++
 	}
-
-
 }
-
 
 func dkg(t, n int) ([]*share.PriShare, *share.PubPoly) {
 	allShares := make([][]*share.PriShare, n)
@@ -462,6 +428,7 @@ func dkg(t, n int) ([]*share.PriShare, *share.PubPoly) {
 		}
 		shares[i] = &share.PriShare{I: i, V: v}
 	}
+
 	return shares, public
 }
 
@@ -493,5 +460,6 @@ func recover(public *share.PubPoly, msg []byte, sigs [][]byte, t, n int) ([]byte
 	if err != nil {
 		return nil, err
 	}
+
 	return sig, nil
 }

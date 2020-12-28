@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"encoding/json"
 
-	"github.com/csanti/onet"
-	"github.com/csanti/onet/log"
-	"github.com/csanti/onet/network"
+	"go.dedis.ch/onet"
+	"go.dedis.ch/onet/log"
+	"go.dedis.ch/onet/network"
 	"go.dedis.ch/kyber/sign/tbls"
 	"go.dedis.ch/kyber/sign/bls"
 	"go.dedis.ch/kyber/share"

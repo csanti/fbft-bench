@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/csanti/onet"
-	"github.com/csanti/onet/log"
+	"go.dedis.ch/onet"
+	"go.dedis.ch/onet/log"
 	"go.dedis.ch/kyber/pairing"
 	"go.dedis.ch/kyber"
 )

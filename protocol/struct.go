@@ -1,7 +1,7 @@
 package protocol
 
 import (
-	"github.com/csanti/onet"
+	"go.dedis.ch/onet"
 	"go.dedis.ch/kyber"
 	"go.dedis.ch/kyber/share"
 )

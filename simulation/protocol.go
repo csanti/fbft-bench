@@ -22,13 +22,12 @@ In the Node-method you can read the files that have been created by the
 import (
 	"fmt"
 	"time"
-//	"errors"
 	"math/rand"
 
 	"github.com/BurntSushi/toml"
-	"github.com/csanti/onet"
-	"github.com/csanti/onet/log"
-	"github.com/csanti/onet/simul/monitor"
+	"go.dedis.ch/onet"
+	"go.dedis.ch/onet/log"
+	"go.dedis.ch/onet/simul/monitor"
 	"github.com/csanti/fbft-bench/protocol"
 )
 
@@ -91,9 +90,7 @@ func (s *SimulationProtocol) Run(config *onet.SimulationConfig) error {
 	var binaryBlock []byte
 	binaryBlock = make([]byte, s.BlockSize)
 	rand.Read(binaryBlock)
-	
-	size := config.Tree.Size()
-	log.Lvl1("Size is:", size, "rounds:", s.Rounds)
+
 	log.Lvl1("Simulating for", s.Hosts, "nodes in ", s.Rounds, "round")
 
 	for round := 0; round < s.Rounds; round++ {

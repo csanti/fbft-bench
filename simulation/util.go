@@ -1,8 +1,8 @@
 package simulation
 
 import (
-	"go.dedis.ch/kyber/share"
-	"go.dedis.ch/kyber/util/random"
+	"go.dedis.ch/kyber/v3/share"
+	"go.dedis.ch/kyber/v3/util/random"
 	fbft "github.com/csanti/fbft-bench/protocol"
 )
 

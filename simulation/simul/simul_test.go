@@ -3,8 +3,8 @@ package main_test
 import (
 	"testing"
 
-	"github.com/csanti/onet/log"
-	"github.com/csanti/onet/simul"
+	"go.dedis.ch/onet/v3/log"
+	"go.dedis.ch/onet/v3/simul"
 )
 
 func TestMain(m *testing.M) {

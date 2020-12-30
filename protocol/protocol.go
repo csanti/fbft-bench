@@ -10,15 +10,15 @@ import (
 	"fmt"
 	"encoding/json"
 
-	"go.dedis.ch/onet"
-	"go.dedis.ch/onet/log"
-	"go.dedis.ch/onet/network"
-	"go.dedis.ch/kyber/sign/tbls"
-	"go.dedis.ch/kyber/sign/bls"
-	"go.dedis.ch/kyber/share"
+	"go.dedis.ch/onet/v3"
+	"go.dedis.ch/onet/v3/log"
+	"go.dedis.ch/onet/v3/network"
+	"go.dedis.ch/kyber/v3/sign/tbls"
+	"go.dedis.ch/kyber/v3/sign/bls"
+	"go.dedis.ch/kyber/v3/share"
 
-	"go.dedis.ch/kyber/pairing/bn256"
-	"go.dedis.ch/kyber/util/random"
+	"go.dedis.ch/kyber/v3/pairing/bn256"
+	"go.dedis.ch/kyber/v3/util/random"
 
 	"crypto/sha512"
 )

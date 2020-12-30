@@ -1,9 +1,9 @@
 package protocol
 
 import (
-	"go.dedis.ch/onet"
-	"go.dedis.ch/kyber"
-	"go.dedis.ch/kyber/share"
+	"go.dedis.ch/onet/v3"
+	"go.dedis.ch/kyber/v3"
+	"go.dedis.ch/kyber/v3/share"
 )
 
 /*

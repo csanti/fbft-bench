@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"go.dedis.ch/onet"
-	"go.dedis.ch/onet/log"
-	"go.dedis.ch/kyber/pairing"
-	"go.dedis.ch/kyber"
+	"go.dedis.ch/onet/v3"
+	"go.dedis.ch/onet/v3/log"
+	"go.dedis.ch/kyber/v3/pairing"
+	"go.dedis.ch/kyber/v3"
 )
 type networkSuite struct {
 	kyber.Group

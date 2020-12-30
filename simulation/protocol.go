@@ -25,9 +25,9 @@ import (
 	"math/rand"
 
 	"github.com/BurntSushi/toml"
-	"go.dedis.ch/onet"
-	"go.dedis.ch/onet/log"
-	"go.dedis.ch/onet/simul/monitor"
+	"go.dedis.ch/onet/v3"
+	"go.dedis.ch/onet/v3/log"
+	"go.dedis.ch/onet/v3/simul/monitor"
 	"github.com/csanti/fbft-bench/protocol"
 )
 
